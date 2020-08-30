@@ -4,9 +4,11 @@ import argparse
 import imutils
 import time
 import cv2
+import serial
 length = None
 sox = 0
 soy = 0 
+flag = True
 # Construct argument parser and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-v", "--video", type=str, help="path to video file")
@@ -23,9 +25,13 @@ OPENCV_OBJECT_TRACKER = {
     "mosse": cv2.TrackerMOSSE_create
 }
 
+#Initialize Ardiuno
+ardiuno = serial.Serial('COM6', 9600)
+print("Connecting to ardiuno...")
+
 #Grab the approperiate tracker
 tracker = OPENCV_OBJECT_TRACKER[args["tracker"]]()
-#Initialize the bounding box coordinates of the object we are going to track
+#Initialize1 the bounding box coordinates of the object we are going to track
 initBB = None
 
 #if video path was not supplied grab the reference to the webcame
@@ -37,12 +43,12 @@ if not args.get("video", False):
 else: 
     #grab reference to the video file
     vs = cv2.VideoCapture(args["video"])
-def onChange(trackbarValue):
+"""def onChange(trackbarValue):
     vs.set(cv2.CAP_PROP_POS_FRAMES,trackbarValue)
     err,img = vs.read()
     cv2.imshow("SERB Tracker", img)
-    pass   
-    #initialize the fps throughput estimator
+    pass   q
+    #initialize the fps throughput estimator"""
 fps = None
     #fps = FPS().start()
     #Loop over frames from the video stream
@@ -51,14 +57,23 @@ while True:
     #length = int(vs.get(cv2.CAP_PROP_FRAME_COUNT))
     frame = vs.read()
     frame = frame[1] if args.get("video", False) else frame
+    #cv2.rectangle(frame, (217, 154), (67, 68), (255,0,0), 2)   #(217, 154, 67, 68)
+    if flag:
+        cv2.rectangle(frame, (280, 200), (360, 280), (255,0,0), 2)
+    #height, width = frame.shape[:2]
+    #width  = vs.get(3) # float
+    #height = vs.get(4) # float
+    
+    #print("WIdth: {0}".format())
+    #ROI Details (217,154,75,75) where 217 is X->(downward) & 154 is Y->(leftToright) & 75,75 is width & height
 
     #check to see if we reached to end of stream
     if frame is None:
         break
     #resize frame so we can process it faster adn grabe the frame dimensions
-    frame = imutils.resize(frame, width=500)
+    #frame = imutils.resize(frame, width=500)
     (H, W) = frame.shape[:2]
-
+    #print("WIdth: {0} Hight: {1}".format(W,H))
     #check to see if we currently tracking an object
     if initBB is not None:
         #grab the new bounding box cooardinates of the object
@@ -77,6 +92,13 @@ while True:
             #the offsets for the x,y tracking from the center
             sox = str(x2 - (W/2))
             soy = str((H/2) - y2)
+
+            #update ardiuno
+            data = "X-{0:04d}-Y-{1:04d}-Z".format(x2,y2)
+            print("output = '" +data+ "'")
+            ardiuno.write(data.encode())
+            ardiuno.flush()
+
         #update the FPS counter
        # if fps is not None:
         fps.update() 
@@ -115,12 +137,16 @@ while True:
             else:
 	            vs.release()
                 
-        initBB = cv2.selectROI("Frame", frame, fromCenter= False, showCrosshair= True)
-
+        #initBB = cv2.selectROI("Frame", frame, fromCenter= False, showCrosshair= True)
+        print(initBB)
         #Start the opencv objectTracker using supplied bounding box 
-        #initBB = (177, 145, 125, 135)
+        initBB = (280, 200, 75, 75)
+        #(280, 200), (360, 280)
         tracker.init(frame, initBB)
         print(initBB)
+        flag = False
+        #(217, 154, 67, 68)
+        #(217, 154, 67, 68)
         #fps.stop
         fps = FPS().start() 
     elif key == ord("z"):
