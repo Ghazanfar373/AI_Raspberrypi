@@ -4,7 +4,7 @@ import argparse
 import imutils
 import time
 import cv2
-import serial
+#import serial
 length = None
 sox = 0
 soy = 0 
@@ -23,10 +23,11 @@ OPENCV_OBJECT_TRACKER = {
     "tld": cv2.TrackerTLD_create,
     "medianflow": cv2.TrackerMedianFlow_create,
     "mosse": cv2.TrackerMOSSE_create
+    
 }
 
 #Initialize Ardiuno
-ardiuno = serial.Serial('COM6', 9600)
+#ardiuno = serial.Serial('COM6', 9600)
 print("Connecting to ardiuno...")
 
 #Grab the approperiate tracker
@@ -35,9 +36,14 @@ tracker = OPENCV_OBJECT_TRACKER[args["tracker"]]()
 initBB = None
 
 #if video path was not supplied grab the reference to the webcame
+width=640   
+height=480
+flip=2
+camSet='nvarguscamerasrc sensor-id=0 ! video/x-raw(memory:NVMM), width=1280, height=720, framerate=21/1,format=NV12 ! nvvidconv flip-method='+str(flip)+' ! video/x-raw, width='+str(width)+', height='+str(height)+', format=(string)I420 ! videoconvert !  videobalance contrast=1.3 brightness=-.2 saturation=1.2 ! appsink'
+camSet1='nvarguscamerasrc v4l2src device=/dev/video0 ! video/x-raw(memory:NVMM), width=(int)1280, height=(int)720,format=(string)I420, framerate=(fraction)24/1 ! nvvidconv flip-method=2 ! video/x-raw, format=(string)BGRx ! videoconvert ! video/x-raw, format=(string)BGR ! appsink'
 if not args.get("video", False):
     print("[INFO] Video stream starting...")
-    vs = VideoStream(src=0).start()
+    vs = VideoStream(src=camSet).start()
     #vs = cv2.VideoCapture(0)
     time.sleep(5)
 else: 
@@ -96,8 +102,8 @@ while True:
             #update ardiuno
             data = "X-{0:04d}-Y-{1:04d}-Z".format(x2,y2)
             print("output = '" +data+ "'")
-            ardiuno.write(data.encode())
-            ardiuno.flush()
+            #ardiuno.write(data.encode())
+            #ardiuno.flush()
 
         #update the FPS counter
        # if fps is not None:
