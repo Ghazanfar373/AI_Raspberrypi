@@ -4,8 +4,25 @@ import argparse
 import imutils
 import time
 import cv2
+import threading
 import serial
 import os
+from struct import *
+
+
+# data to send to Arduino
+#    unsigned long totalMicros; // 4 bytes
+#    int xInterval;              // 2
+#    int yInterval;              // 2
+#    int zInterval;              // 2
+#    byte xorVal;                // 1
+header = 223
+dx = 0
+dy = 0 # -122, limited to 128 control gain for 1 byte
+xor = 233 #bool(dx) ^ bool(dy) 
+binData = pack('<BhhB', header, dx, dy, xor)
+
+
 length = None
 sox = 0
 soy = 0 
@@ -17,7 +34,7 @@ os.system("sudo chmod 777 /dev/ttyUSB0")
 #release Gstreamer Pipeline
 os.system("sudo systemctl restart nvargus-daemon")
 #Initialize Ardiuno
-ardiuno = serial.Serial('/dev/ttyUSB0', 9600)
+ardiuno = serial.Serial('/dev/ttyUSB0', 115200) 
 print("Connecting to ardiuno...")
 time.sleep(3)
 #Serial Data Reciever Thread Class
@@ -34,6 +51,7 @@ time.sleep(3)
 ##serialRec.start()
 ##serialRec.join()
 #serialRec.stop()
+
 # Construct argument parser and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-v", "--video", type=str, help="path to video file")
@@ -60,9 +78,30 @@ initBB = None
 #if video path was not supplied grab the reference to the webcame
 width=640   
 height=480
+#width=1280   
+#height=720
+#width=1920   
+#height=1080
 flip=2
-camSet='nvarguscamerasrc sensor-id=0 ! video/x-raw(memory:NVMM), width=680, height=420, framerate=21/1,format=NV12 ! nvvidconv flip-method='+str(flip)+' ! video/x-raw, width='+str(width)+', height='+str(height)+', format=(string)I420 ! videoconvert ! video/x-raw, format=(string)BGR ! appsink'
-camSet1='nvarguscamerasrc v4l2src device=/dev/video0 ! video/x-raw(memory:NVMM), width=(int)1280, height=(int)720,format=(string)I420, framerate=(fraction)24/1 ! nvvidconv flip-method=2 ! video/x-raw, format=(string)BGRx ! videoconvert ! video/x-raw, format=(string)BGR ! appsink'
+camSet1='nvarguscamerasrc sensor-id=0 ! video/x-raw(memory:NVMM), width=1280, height=720, framerate=21/1,format=NV12 ! nvvidconv flip-method='+str(flip)+' ! video/x-raw, width='+str(width)+', height='+str(height)+', format=(string)I420 ! videoconvert ! video/x-raw, format=(string)BGR ! appsink'
+camSet='nvarguscamerasrc v4l2src device=/dev/video0 ! video/x-raw(memory:NVMM), width=(int)1280, height=(int)720,format=(string)I420, framerate=(fraction)24/1 ! nvvidconv flip-method=2 ! video/x-raw, format=(string)BGRx ! videoconvert ! video/x-raw, format=(string)BGR ! appsink'
+camSet ='v4l2src device=/dev/video1 ! video/x-raw,width='+str(width)+',height='+str(height)+',framerate=20/1 ! videoconvert ! appsink'
+
+
+global disableTracking
+disableTracking = False
+def read_from_port(ser):
+    global disableTracking
+    while True:
+        #reading = ser.readline()
+        reading = ser.read()
+        if reading == b'\xa5':
+            disableTracking = True	
+thread = threading.Thread(target=read_from_port, args=(ardiuno,))
+thread.start()
+
+
+
 if not args.get("video", False):
     print("[INFO] Video stream starting...")
     vs = VideoStream(src=camSet).start()
@@ -83,7 +122,7 @@ fps = None
     #Loop over frames from the video stream
 while True:
     #Read arduino commands
-    #data = ardiuno.readline()
+    #if(ardiuno.read()
     #print(data)
     #grabe the video frame if we using videostream or cam stream
     #length = int(vs.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -127,9 +166,27 @@ while True:
 
             #update ardiuno
             data = "X-{0:04d}-Y-{1:04d}-Z".format(x2,y2)
-            print("output = '" +data+ "'")
+            #print("output = '" +data+ "'")
             finalData = data + '\r\n'
-            ardiuno.write(finalData.encode())
+            #ardiuno.write(finalData.encode())
+
+            #binData = pack('<LhhhB', totalMicros, x2, dy, zInterval, xor)
+            #pass err only in 1 byte
+            widthCenter = width/2.0
+            heightCenter = height/2.0
+            x_norm = 2*(x2-widthCenter)/width;
+            y_norm = 2*(y2-heightCenter)/height;
+            
+            
+            #print( x_norm ) #(x_norm).to_bytes(2, byteorder='big')
+            dx = int(x_norm*127)
+            dy = int(y_norm*127)
+            #binData = pack('<BhhB', header, dx, dy, xor)
+            binData = pack('<BhhB', header, int(x2-widthCenter), int(y2-heightCenter), xor)
+
+            ardiuno.write(binData)
+
+
             #time.sleep(.015) 
            
 
@@ -144,6 +201,7 @@ while True:
             ("FPS", "{:.2f}".format(fps.fps())),
             ("coord:","{}: {}".format(sox, soy)) 
             ]
+        print(fps.fps())
                 # loop over the info tupples and show them on frame
         for(i, (k,v)) in enumerate(info):
             text = "{}: {}".format(k, v)  
@@ -151,6 +209,7 @@ while True:
     time.sleep(0.050)    
     cv2.imshow("Tracker Test Cases", frame)
     cv2.namedWindow('Tracker Test Cases')
+
     #cv2.createTrackbar( 'start', 'mywindow', 0, length, onChange )
     #cv2.createTrackbar( 'end'  , 'mywindow', 100, length, onChange
     #if (ardiuno.inWaiting() > 1):
@@ -180,15 +239,29 @@ while True:
         initBB = (580, 200, 75, 75)
         #(280, 200), (360, 280)
         tracker.init(frame, initBB)
-        print(initBB)
+        #print(initBB)
         flag = False
         #(217, 154, 67, 68)
         #(217, 154, 67, 68)
         #fps.stop
         fps = FPS().start() 
+
+    elif key == ord('d'):
+        tracker.clear();
+        tracker = None
+        tracker = OPENCV_OBJECT_TRACKER[args["tracker"]]()
+        initBB = None
+	
     elif key == ord("z"):
         break
-        
+
+    if disableTracking:
+        #print("disable trackingxx")
+        tracker.clear();
+        tracker = OPENCV_OBJECT_TRACKER[args["tracker"]]()
+        initBB = None
+        disableTracking = False
+
 threadState = False
 ardiuno.close()
 initBB = None
