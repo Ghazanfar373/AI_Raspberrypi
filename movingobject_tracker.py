@@ -5,41 +5,20 @@ import imutils
 import time
 import cv2
 import serial
-import os
 length = None
 sox = 0
 soy = 0 
 flag = True
-threadState = True
-
-#Set system permission to Com port
-os.system("sudo chmod 777 /dev/ttyUSB0")
-#release Gstreamer Pipeline
-os.system("sudo systemctl restart nvargus-daemon")
-#Initialize Ardiuno
-ardiuno = serial.Serial('/dev/ttyUSB0', 9600)
-print("Connecting to ardiuno...")
-time.sleep(3)
-#Serial Data Reciever Thread Class
-##class serialThread(threading.Thread):
-##    def run(self):
-##        while threadState:
-##            data = ardiuno.readline()
-##            print(data)
-##            time.sleep(1)
-##
-##serialRec = serialThread()
-##if serialRec.isAlive():
-##    serialRec.kill()
-##serialRec.start()
-##serialRec.join()
-#serialRec.stop()
+lockcmd = 0
+unlockcmd = 0
+valFPS = 1
+val = "0"
+exitCounter = 0
 # Construct argument parser and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-v", "--video", type=str, help="path to video file")
 ap.add_argument("-t", "--tracker", type=str, default="kcf", help="Object Tracker type")
 args = vars(ap.parse_args())
-
 OPENCV_OBJECT_TRACKER = {
     "csrt": cv2.TrackerCSRT_create,
     "kcf": cv2.TrackerKCF_create,
@@ -47,10 +26,17 @@ OPENCV_OBJECT_TRACKER = {
     "mil": cv2.TrackerMIL_create,
     "tld": cv2.TrackerTLD_create,
     "medianflow": cv2.TrackerMedianFlow_create,
-    "mosse": cv2.TrackerMOSSE_create
-    
+    "mosse": cv2.TrackerMOSSE_create,
+    "goturn": cv2.TrackerGOTURN_create
 }
+#Initialize Ardiuno
+ardiuno = serial.Serial('/dev/ttyTHS0', 9600, timeout = 1)
+print("Connecting to ardiuno...")
 
+#Initialize Datalink
+
+datalink = serial.Serial('/dev/ttyUSB0', 9600,timeout = 1)
+print("Connecting to Datalink...")
 
 #Grab the approperiate tracker
 tracker = OPENCV_OBJECT_TRACKER[args["tracker"]]()
@@ -58,17 +44,11 @@ tracker = OPENCV_OBJECT_TRACKER[args["tracker"]]()
 initBB = None
 
 #if video path was not supplied grab the reference to the webcame
-width=640   
-height=480
-flip=2
-camSet='nvarguscamerasrc sensor-id=0 ! video/x-raw(memory:NVMM), width=680, height=420, framerate=21/1,format=NV12 ! nvvidconv flip-method='+str(flip)+' ! video/x-raw, width='+str(width)+', height='+str(height)+', format=(string)I420 ! videoconvert ! video/x-raw, format=(string)BGR ! appsink'
-camSet1='nvarguscamerasrc v4l2src device=/dev/video0 ! video/x-raw(memory:NVMM), width=(int)1280, height=(int)720,format=(string)I420, framerate=(fraction)24/1 ! nvvidconv flip-method=2 ! video/x-raw, format=(string)BGRx ! videoconvert ! video/x-raw, format=(string)BGR ! appsink'
 if not args.get("video", False):
     print("[INFO] Video stream starting...")
-    vs = VideoStream(src=camSet).start()
-    #vs = VideoStream(src=0).start()
+    vs = VideoStream(src=0).start()
     #vs = cv2.VideoCapture(0)
-    time.sleep(5)
+    time.sleep(2)
 else: 
     #grab reference to the video file
     vs = cv2.VideoCapture(args["video"])
@@ -81,31 +61,56 @@ else:
 fps = None
     #fps = FPS().start()
     #Loop over frames from the video stream
+frame = vs.read()
+#today
+frame = imutils.resize(frame, width=890)
+frame = imutils.resize(frame, height=500)
+frame = frame[1] if args.get("video", False) else frame
+(H, W) = frame.shape[:2]
+print("WIdth: {0} Hight: {1}".format(W,H))
+#cv2.rectangle(frame, (217, 154), (67, 68), (255,0,0), 2)   #(217, 154, 67, 68)
+widthP1 = int((W/2)-40)
+heightP1 = int((H/2)-40)
+widthP2 = int((W/2)+40)
+heightP2 = int((H/2)+40)
+print("P1 out: {0} P2 out: {1}".format(widthP2,heightP2))
+ardiuno.flushOutput()
+datalink.flushInput()
 while True:
-    #Read arduino commands
-    #data = ardiuno.readline()
-    #print(data)
+    if datalink.in_waiting > 0:
+        complete = datalink.readline()
+        asciidec = complete.decode('ascii')
+        databuffer = asciidec.split("-")
+        # for i in databuffer:
+        if databuffer[0] == 'X':
+            
+            print("{0},{1}".format(databuffer[5],databuffer[7]))
+            #if databuffer[5] == '1':
+            lockcmd = databuffer[5] 
+            unlockcmd = databuffer[7]
+            #val = 30
+            #flag = False
+        if flag is not False:
+            print("Joystic", asciidec)
+            ardiuno.write(complete)
+            ardiuno.flushOutput()
+            datalink.flushInput()
     #grabe the video frame if we using videostream or cam stream
     #length = int(vs.get(cv2.CAP_PROP_FRAME_COUNT))
     frame = vs.read()
     frame = frame[1] if args.get("video", False) else frame
-    #cv2.rectangle(frame, (217, 154), (67, 68), (255,0,0), 2)   #(217, 154, 67, 68)
-    if flag:
-        cv2.rectangle(frame, (280, 200), (360, 280), (255,0,0), 2)
-    #height, width = frame.shape[:2]
-    #width  = vs.get(3) # float
-    #height = vs.get(4) # float
-    
-    #print("WIdth: {0}".format())
-    #ROI Details (217,154,75,75) where 217 is X->(downward) & 154 is Y->(leftToright) & 75,75 is width & height
+    #today
+    frame = imutils.resize(frame, width=890)
+    frame = imutils.resize(frame, height=500)
 
     #check to see if we reached to end of stream
     if frame is None:
         break
     #resize frame so we can process it faster adn grabe the frame dimensions
     #frame = imutils.resize(frame, width=500)
-    (H, W) = frame.shape[:2]
-    #print("WIdth: {0} Hight: {1}".format(W,H))
+    
+    if flag:
+        cv2.rectangle(frame, (widthP1, heightP1), (widthP2, heightP2), (20,255,20), 2)
     #check to see if we currently tracking an object
     if initBB is not None:
         #grab the new bounding box cooardinates of the object
@@ -113,92 +118,98 @@ while True:
         if success:
             (x, y, w, h) = [int(v) for v in box]
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0,255,0), 2)
-            
             #Draw Circle in center of the bounding Box
             x2 = x + int(w/2)
             y2 = y + int(h/2)
             cv2.circle(frame, (x2,y2), 5, (0,255,0), 1)
             txt = "X: " + str(x2) + ", Y: " + str(y2)
-            cv2.putText(frame, txt, (x2 - 40, y2 - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0,255,0),1)
+            cv2.putText(frame, txt, (x2 , y2 ), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0,255,0), 1)
             #cv2.line(frame, (x,0), (x,480), (0,255,0), 1)
             #the offsets for the x,y tracking from the center
             sox = str(x2 - (W/2))
             soy = str((H/2) - y2)
-
             #update ardiuno
-            data = "X-{0:04d}-Y-{1:04d}-Z".format(x2,y2)
+            if lockcmd == "1":
+                val = lockcmd
+                x2 = 240
+                y2 = 160
+            data = "X-{0:04d}-Y-{1:04d}-Z-{2}-B-0-A".format(x2,y2,val)
             print("output = '" +data+ "'")
-            finalData = data + '\r\n'
-            ardiuno.write(finalData.encode())
-            #time.sleep(.015) 
-           
-
+            ardiuno.write(data.encode())
+            ardiuno.write('\n'.encode())
+            time.sleep(0.0018)
+            ardiuno.flushOutput()
+            datalink.flushInput()
+            
         #update the FPS counter
        # if fps is not None:
         fps.update() 
         fps.stop()   
-             #initialize the set of information we are going to display on our frmae
+             #initialize the set of information we are going to display on our frame
         info = [
-            ("Tracker", args["tracker"]),
+            ("Tracker", "SERB AI"),
             ("Success", "Yes" if success else "No" ),
             ("FPS", "{:.2f}".format(fps.fps())),
-            ("coord:","{}: {}".format(sox, soy)) 
+            ("coord:","{}: {}".format(x2, y2))
             ]
                 # loop over the info tupples and show them on frame
         for(i, (k,v)) in enumerate(info):
             text = "{}: {}".format(k, v)  
             cv2.putText(frame, text, (10, H - ((i * 20) + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
-    time.sleep(0.050)    
+    #time.sleep(.025)    
+
     cv2.imshow("Tracker Test Cases", frame)
     cv2.namedWindow('Tracker Test Cases')
     #cv2.createTrackbar( 'start', 'mywindow', 0, length, onChange )
-    #cv2.createTrackbar( 'end'  , 'mywindow', 100, length, onChange
-    #if (ardiuno.inWaiting() > 1):
-        #data = ardiuno.read(ardiuno.inWaiting()).decode('ascii')
-        #print(data, end='')
-        #time.sleep(0.025)
-    key = cv2.waitKey(1) & 0xFF
+    #cv2.createTrackbar( 'end'  , 'mywindow', 100, length, onChange )
+    time.sleep(0.08)
+    cv2.waitKey(30)
+    #key = cv2.waitKey(val) & 0xFF
     # if the s key is selected 
-    ardiuno.flush()
-    if key == ord('s'):
+    #if key == ord('s'):
+    if lockcmd == "1" and flag == True:
            #if 'S' key is selected then we are going to select the bounding box
             #Sure you press SPACE or ENTER after selecting the ROI
         if(fps != None):
             print("FPS: {}".format(fps))
             fps.update()
             fps.stop()
-            if not args.get("video", False):
-	            vs.stop()
-            # otherwise, release the file pointer
-            else:
-	            vs.release()
+            # if not args.get("video", False):
+	        #     vs.stop()
+            # # otherwise, release the file pointer
+            # else:
+	        #     vs.release()
                 
         #initBB = cv2.selectROI("Frame", frame, fromCenter= False, showCrosshair= True)
-        print(initBB)
+        #print(initBB)
         #Start the opencv objectTracker using supplied bounding box 
-        #initBB = (280, 200, 75, 75)
-        initBB = (580, 200, 75, 75)
+        initBB = (widthP1, heightP1, 75, 75)
         #(280, 200), (360, 280)
         tracker.init(frame, initBB)
-        print(initBB)
+        #print(initBB)
         flag = False
-        #(217, 154, 67, 68)
-        #(217, 154, 67, 68)
-        #fps.stop
+        valFPS = 30
         fps = FPS().start() 
-    elif key == ord("z"):
-        break
+    elif unlockcmd == "1":
+        exitCounter+=1
+        print(exitCounter)
+        if flag is False:
+            fps.stop()
+            fps = None 
+            initBB = None 
+            flag = True
+        if exitCounter >= 20:
+            break
+            ardiuno.close()
+            datalink.close()
+            cv2.destroyAllWindows()
         
-threadState = False
-ardiuno.close()
-initBB = None
-vs.stop()
-cv2.destroyAllWindows()
-#vs.release()
-
     #if not args.get("video", False):
        # vs.stop()
-
+   
     #else:
       #  vs.release()
     
+  # Hello this is commit 2nd from NVIDIA COmputer     
+
+
