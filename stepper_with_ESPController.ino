@@ -13,11 +13,11 @@
 
 int  panValue,tiltValue;
 byte recBuffer[17];
-int  valueModes ;
+int  gimbleMode ;
 int panMinLimit  =  1000, panMaxLimit  = 1900, panCenter  = 1500;
 int tiltMinLimit =  1000, tiltMaxLimit = 1900, tiltCenter = 1500;
-byte pwm_pin_pan = 5;
-byte pwm_pin_tilt = 22;
+byte pwm_pin_pan = 36;
+byte pwm_pin_tilt = 39;
 byte pinSbus_Modes = 34;
 byte counterMode=1;
 byte pinJetson_Modes = 13;
@@ -62,13 +62,14 @@ panValue = pulseIn(pwm_pin_pan, HIGH, 25000);
 tiltValue = pulseIn(pwm_pin_tilt, HIGH, 25000);
 // if(tiltValue < 1000){tiltValue = 1000;}  else if(tiltValue  > 2000){tiltValue  = 2000;}
  //..............................................Control Modes................................
-//valueModes = pulseIn(pinSbus_Modes, HIGH, 25000);
+gimbleMode = pulseIn(pinSbus_Modes, HIGH, 25000);
 ////Decision Tree (Modes Control Switch)
-//if(valueModes> 0 && valueModes ==1000){
-//  digitalWrite(pinJetson_Modes,LOW);
-//}
-//else if(valueModes>0 && valueModes>=1500){
-//  digitalWrite(pinJetson_Modes,HIGH);//             Pan    Tilt
+if(gimbleMode> 0 && gimbleMode ==1000){
+  digitalWrite(pinJetson_Modes,LOW);
+}
+else if(gimbleMode>0 && gimbleMode>=1500){
+  digitalWrite(pinJetson_Modes,HIGH);
+}//             Pan    Tilt
 //  char s = Serial.read();    //Packet Formation: 'X-0000-Y-0000-Z-1'
 //  if(s == 'X') Serial.readBytes(recBuffer,17);
 //  char arrayPan[] = {recBuffer[1],recBuffer[2],recBuffer[3],recBuffer[4]};
@@ -92,9 +93,6 @@ tiltValue = pulseIn(pwm_pin_tilt, HIGH, 25000);
 Serial.print(panValue);
 Serial.print("   " );
 Serial.println(tiltValue);
-
-
-
 if(panValue>(panCenter + 80) && panValue<panMaxLimit)
 {
   if(digitalRead(lsPanRight)==LOW ){
@@ -108,7 +106,6 @@ if(panValue>(panCenter + 80) && panValue<panMaxLimit)
    
   }
 }
-
 //Data  Saving inside the factory material....
 if(panValue<panCenter && panValue>panMinLimit)
   {
@@ -151,6 +148,7 @@ if(tiltValue<tiltCenter && tiltValue>tiltMinLimit)
 
 void  readFromController(){
   if(Serial.available()){
+    noInterrupts();
 String s = Serial.readStringUntil('Z');
 String xval = s.substring(2,6);
 String yval = s.substring(9,14);
